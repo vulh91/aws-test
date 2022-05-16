@@ -20,32 +20,32 @@ const withLog = async (fn) => {
   }
 }
 
-const getSupplySources = (spApi) => withLog(() => spApi.callAPI({
+const getSupplySources = () => spapi.callAPI({
   api_path: '/supplySources/2020-07-01/supplySources',
   method: 'GET',
   body: {},
   version: "v0"
-}));
+});
 
-const getInventory = (spApi, { location, sku }) => withLog(() => spApi.callAPI({
+const getInventory = ({ location, sku }) => spapi.callAPI({
   api_path: `/externalFulfillment/inventory/2021-01-06/locations/${location.supplySourceId}/skus/${sku}`,
   method: 'GET',
   version: 'v0'
-}))
+});
 
-const updateInventory = (spApi, { location, sku, quantity }) => withLog(() => spApi.callAPI({
+const updateInventory = ({ location, sku, quantity, etag, timestamp }) => spapi.callAPI({
   method: 'PUT',
   api_path: `/externalFulfillment/inventory/2021-01-06/locations/${location.supplySourceId}/skus/${sku}`,
   query: {
     quantity
   },
   headers: {
-    'If-Match': '1',
-    'If-Unmodified-Since': '1'
+    // 'If-Match': etag,
+    // 'If-Unmodified-Since': timestamp
   },
   version: "v0",
   stringToSignSeparator: ''
-}));
+});
 
 
 const spapi = new SellingPartnerAPI({
@@ -204,22 +204,87 @@ const writeFile = (path, data) => {
   // console.log(`access token: ${api.access_token}`);
 
   // Get SupplySources
-  // const result  = await getSupplySources();
+  // const result = await getSupplySources();
+  // console.log(result);
 
   // Update inventory
-  // const location = { supplySourceId: "43cd8cd4-a944-4fa8-a584-5e3b3efdb045", alias: "mock" }
-  // const skus = [
-  //   'efptestsku2',
-  // ]
-  // const quantity = 15;
-
-  // for (const sku of skus) {
-  //   // const result = await getInventory({ location, sku });
-  //   const updateResult = await updateInventory({ location, sku, quantity })
-  // }
+  // await getCurrentInventoryOnProd();
+  // await updateInventoryOnProd();
+  // await updateInventoryOnSandbox();
 
   // await exportOrders(7);
   // await exportInventorySummaries();
   // const reportDocument = await exportListingItems();
   // console.log(reportDocument);
 })();
+
+async function getCurrentInventoryOnProd() {
+  const westfieldLocation = {
+    supplySourceId: 'bce74cea-3038-4d97-b157-54a3741c6952',
+    supplySourceCode: '100Percent-Pure-WESTFIELD-SOUTHCENTER-Mall',
+    alias: '100Percent Pure - WESTFIELD SOUTHCENTER Mall',
+  };
+
+  const skus = [
+    '1FMCBEC',
+    '1CMBT7G',
+    '1BSGBO',
+    '1CFPRPWP',
+    '1FMOMNM'
+  ];
+
+  for (const sku of skus) {
+    const result = await getInventory({ location: westfieldLocation, sku });
+    console.log(JSON.stringify(result));
+  }
+}
+
+async function updateInventoryOnProd() {
+  const westfieldLocation = {
+    supplySourceId: 'bce74cea-3038-4d97-b157-54a3741c6952',
+    supplySourceCode: '100Percent-Pure-WESTFIELD-SOUTHCENTER-Mall',
+    alias: '100Percent Pure - WESTFIELD SOUTHCENTER Mall',
+  };
+
+  const skus = [
+    '1FMCBEC',
+    '1CMBT7G',
+    '1BSGBO',
+    '1CFPRPWP',
+    '1FMOMNM'
+  ];
+
+  const quantity = 100;
+  for (const sku of skus) {
+    // const result = await getInventory({ location, sku });
+    const updateResult = await updateInventory({
+      location: westfieldLocation,
+      sku,
+      quantity,
+      etag: 'v1',
+      timestamp: new Date()
+    });
+
+    console.log(JSON.stringify(updateResult));
+  }
+}
+
+async function updateInventoryOnSandbox() {
+  const sandboxLocation = { supplySourceId: "43cd8cd4-a944-4fa8-a584-5e3b3efdb045", alias: "mock" };
+  const sandboxSkus = [
+    'efptestsku2',
+  ];
+
+  const quantity = 15;
+  for (const sku of sandboxSkus) {
+    // const result = await getInventory({ location, sku });
+    const updateResult = await updateInventory({
+      location: sandboxLocation,
+      sku,
+      quantity,
+      etag: 'v1',
+      timestamp: Date.UTC
+    });
+  }
+}
+

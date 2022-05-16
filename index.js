@@ -5,6 +5,11 @@ const { captureRejectionSymbol } = require("events");
 
 dotenv.config();
 
+const Marketplace = {
+  US: 'ATVPDKIKX0DER',
+  CA: 'A2EUQ1WTGCTBG2'
+};
+
 const withLog = async (fn) => {
   try {
     const result = await fn();
@@ -42,7 +47,6 @@ const updateInventory = (spApi, { location, sku, quantity }) => withLog(() => sp
   stringToSignSeparator: ''
 }));
 
-// console.log(process.env);
 
 const spapi = new SellingPartnerAPI({
   region: "na",
@@ -67,7 +71,7 @@ const getOrders = async ({ lastUpdatedAfter }) => {
     endpoint: 'orders',
     operation: 'getOrders',
     query: {
-      MarketplaceIds: ['ATVPDKIKX0DER'],
+      MarketplaceIds: [Marketplace.US],
       LastUpdatedAfter: lastUpdatedAfter
     }
   });
@@ -97,10 +101,7 @@ const exportOrders = async (days = 7) => {
 
   var getOrdersResponse = await getOrders({ lastUpdatedAfter });
 
-  fs.writeFile('data/fba_orders.json', JSON.stringify(getOrdersResponse), 'utf8', (err) => {
-    if (err) throw err;
-    console.log(`completed`)
-  });
+  writeFile('data/fba_orders.json', getOrdersResponse);
 
   return getOrdersResponse;
 }
@@ -111,9 +112,9 @@ const getInventorySummaries = async (nextToken = null) => {
     endpoint: 'fbaInventory',
     operation: 'getInventorySummaries',
     query: {
-      marketplaceIds: ['ATVPDKIKX0DER'],
+      marketplaceIds: [Marketplace.US],
       granularityType: 'Marketplace',
-      granularityId: 'ATVPDKIKX0DER',
+      granularityId: Marketplace.US,
       nextToken
     }
   });
@@ -134,9 +135,67 @@ const exportInventorySummaries = async () => {
 
   console.log(allInventoryItems);
 
-  fs.writeFile('data/fba_inventory_summaries.json', JSON.stringify(allInventoryItems), 'utf8', (err) => {
+  writeFile('data/fba_inventory_summaries.json', allInventoryItems);
+}
+
+const exportListingItems = async () => new Promise(async (resolve, reject) => {
+  const { reportId } = createReportResponse = await spapi.callAPI({
+    endpoint: 'reports',
+    operation: 'createReport',
+    body: {
+      reportType: "GET_MERCHANT_LISTINGS_ALL_DATA",
+      marketplaceIds: [
+        Marketplace.US
+      ]
+    }
+  });
+
+  console.log(createReportResponse);
+
+  const invervalId = setInterval(async () => {
+    console.log(`Checking report result`);
+    const { processingStatus, reportDocumentId } = getReportResponse = await spapi.callAPI({
+      endpoint: 'reports',
+      operation: 'getReport',
+      path: {
+        reportId
+      }
+    });
+
+    console.log(getReportResponse);
+    console.log(`processing status: ${processingStatus}`);
+
+    switch (processingStatus.toLowerCase()) {
+      case 'cancelled':
+      case 'fatal': {
+        clearInterval(invervalId);
+        reject(`Report ${reportId} status: ${processingStatus}`);
+        break;
+      }
+      case 'done': {
+        console.log(`Report ${reportId} ready. Getting report data`);
+        const { payload } = getReportDocumentResposne = await spapi.callAPI({
+          endpoint: 'reports',
+          operation: 'getReportDocument',
+          path: {
+            reportDocumentId
+          }
+        });
+
+        console.log(getReportDocumentResposne);
+        clearInterval(invervalId);
+        resolve(payload);
+        break;
+      }
+    }
+  }, 1000 * 60);
+
+  // writeFile('data/listings_all_data.json', listCatalogItemsResponse);
+});
+
+const writeFile = (path, data) => {
+  fs.writeFile(path, JSON.stringify(data), 'utf8', (err) => {
     if (err) throw err;
-    console.log(`completed`)
   });
 }
 
@@ -159,6 +218,8 @@ const exportInventorySummaries = async () => {
   //   const updateResult = await updateInventory({ location, sku, quantity })
   // }
 
-  await exportOrders(7);
-  await exportInventorySummaries();
+  // await exportOrders(7);
+  // await exportInventorySummaries();
+  // const reportDocument = await exportListingItems();
+  // console.log(reportDocument);
 })();

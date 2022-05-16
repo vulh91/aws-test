@@ -1,5 +1,7 @@
 const SellingPartnerAPI = require("my-amazon-sp-api");
 const dotenv = require("dotenv")
+const fs = require("fs");
+const { captureRejectionSymbol } = require("events");
 
 dotenv.config();
 
@@ -42,7 +44,7 @@ const updateInventory = (spApi, { location, sku, quantity }) => withLog(() => sp
 
 // console.log(process.env);
 
-const spApi = new SellingPartnerAPI({
+const spapi = new SellingPartnerAPI({
   region: "na",
   credentials: {
     SELLING_PARTNER_APP_CLIENT_ID: process.env.SELLING_PARTNER_APP_CLIENT_ID,
@@ -53,29 +55,110 @@ const spApi = new SellingPartnerAPI({
   },
   options: {
     only_grantless_operations: false,
-    use_sandbox: true,
+    use_sandbox: false,
     debug_log: true
   },
   refresh_token: process.env.REFRESH_TOKEN
 });
+
+const getOrders = async ({ lastUpdatedAfter }) => {
+  console.log(`Get orders page`)
+  const getOrdersResponse = await spapi.callAPI({
+    endpoint: 'orders',
+    operation: 'getOrders',
+    query: {
+      MarketplaceIds: ['ATVPDKIKX0DER'],
+      LastUpdatedAfter: lastUpdatedAfter
+    }
+  });
+
+  console.log(`Get order line items`)
+  for (const order of getOrdersResponse.Orders) {
+    var getOrderItemsResponse = await getOrderLineItems({ orderId: order.AmazonOrderId });
+    order.LineItems = getOrderItemsResponse.OrderItems;
+  }
+
+  console.log(getOrdersResponse);
+
+  return getOrdersResponse;
+};
+
+const getOrderLineItems = ({ orderId }) => spapi.callAPI({
+  endpoint: 'orders',
+  operation: 'getOrderItems',
+  path: {
+    orderId
+  }
+});
+
+const exportOrders = async (days = 7) => {
+  var lastUpdatedAfter = new Date();
+  lastUpdatedAfter.setDate(lastUpdatedAfter.getDate() - days);
+
+  var getOrdersResponse = await getOrders({ lastUpdatedAfter });
+
+  fs.writeFile('data/fba_orders.json', JSON.stringify(getOrdersResponse), 'utf8', (err) => {
+    if (err) throw err;
+    console.log(`completed`)
+  });
+
+  return getOrdersResponse;
+}
+
+const getInventorySummaries = async (nextToken = null) => {
+  console.log(`Get inventory item summaries. next token: ${nextToken}.`)
+  return await spapi.callAPI({
+    endpoint: 'fbaInventory',
+    operation: 'getInventorySummaries',
+    query: {
+      marketplaceIds: ['ATVPDKIKX0DER'],
+      granularityType: 'Marketplace',
+      granularityId: 'ATVPDKIKX0DER',
+      nextToken
+    }
+  });
+}
+
+const exportInventorySummaries = async () => {
+  const allInventoryItems = [];
+  let nextToken = '';
+  while (true) {
+    const response = await getInventorySummaries(nextToken);
+
+    allInventoryItems.push(response.inventorySummaries);
+    nextToken = response.nextToken;
+
+    if (!nextToken)
+      break;
+  }
+
+  console.log(allInventoryItems);
+
+  fs.writeFile('data/fba_inventory_summaries.json', JSON.stringify(allInventoryItems), 'utf8', (err) => {
+    if (err) throw err;
+    console.log(`completed`)
+  });
+}
 
 (async () => {
   // await api.refreshAccessToken();
   // console.log(`access token: ${api.access_token}`);
 
   // Get SupplySources
-  // const result  = await getSupplySources(spApi);
+  // const result  = await getSupplySources();
 
   // Update inventory
-  const location = { supplySourceId: "43cd8cd4-a944-4fa8-a584-5e3b3efdb045", alias: "mock" }
-  const skus = [
-    'efptestsku2',
-  ]
-  const quantity = 15;
+  // const location = { supplySourceId: "43cd8cd4-a944-4fa8-a584-5e3b3efdb045", alias: "mock" }
+  // const skus = [
+  //   'efptestsku2',
+  // ]
+  // const quantity = 15;
 
-  for (const sku of skus) {
-    // const result = await getInventory(spApi, { location, sku });
-    const updateResult = await updateInventory(spApi, { location, sku, quantity })
-  }
+  // for (const sku of skus) {
+  //   // const result = await getInventory({ location, sku });
+  //   const updateResult = await updateInventory({ location, sku, quantity })
+  // }
+
+  await exportOrders(7);
+  await exportInventorySummaries();
 })();
-
